@@ -1,0 +1,63 @@
+#!/bin/bash
+
+# Flush all current rules from iptables
+
+iptables --flush
+iptables --delete-chain
+iptables -t nat --flush 
+iptables -t nat --delete-chain 
+iptables -t mangle --flush 
+iptables -t mangle --delete-chain 
+
+# Set default policies for INPUT, FORWARD and OUTPUT chains
+
+iptables -P INPUT DROP 
+iptables -P FORWARD DROP 
+iptables -P OUTPUT ACCEPT
+
+# Set access for localhost
+
+iptables -A INPUT -i lo -j ACCEPT 
+iptables -A OUTPUT -o lo -j ACCEPT
+
+# Accept packets belonging to established and related connections
+
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# security checks: force SYN checks, drop all fragments, drop XMAS packets, drop null packets 
+# see: http://security.blogoverflow.com/2011/08/base-rulesets-in-iptables/ 
+iptables -A INPUT -p tcp ! --syn -m state --state NEW -j DROP 
+iptables -A INPUT -f -j DROP 
+iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP 
+iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
+
+# allow icmp 
+iptables -A INPUT -p icmp -m icmp --icmp-type echo-request -m limit --limit 1/second -j ACCEPT 
+iptables -A INPUT -p icmp -m icmp --icmp-type fragmentation-needed -m limit --limit 1/second -j ACCEPT 
+iptables -A INPUT -p icmp -m icmp --icmp-type source-quench -m limit --limit 1/second -j ACCEPT 
+
+# Load the banned addresses
+
+iptables -N BLACKLIST
+iptables -A INPUT -j BLACKLIST
+
+for ADDRESS in `cat banned_addresses.txt`
+do
+  iptables -A BLACKLIST -s $ADDRESS -j DROP
+done
+
+iptables -A BLACKLIST -j RETURN
+
+# Permitted ports
+
+iptables -A INPUT -p tcp --dport 22 -m state --state NEW -s 0.0.0.0/0 -j ACCEPT 
+iptables -A INPUT -p tcp --dport 80 -m state --state NEW -s 0.0.0.0/0 -j ACCEPT 
+
+# Save settings
+
+/sbin/service iptables save
+
+# List rules
+
+iptables -L -v -n --line-number
+
