@@ -50,8 +50,13 @@ iptables -A BLACKLIST -j RETURN
 
 # Permitted ports
 
-iptables -A INPUT -p tcp --dport 22 -m state --state NEW -s 0.0.0.0/0 -j ACCEPT 
-iptables -A INPUT -p tcp --dport 80 -m state --state NEW -s 0.0.0.0/0 -j ACCEPT 
+iptables -N SERVICES
+iptables -A INPUT -j SERVICES
+
+iptables -A SERVICES -p tcp --dport 22 -m state --state NEW -s 0.0.0.0/0 -j ACCEPT 
+iptables -A SERVICES -p tcp --dport 80 -m state --state NEW -s 0.0.0.0/0 -j ACCEPT 
+
+iptables -A SERVICES -j RETURN
 
 # Save settings
 
@@ -60,4 +65,3 @@ iptables -A INPUT -p tcp --dport 80 -m state --state NEW -s 0.0.0.0/0 -j ACCEPT
 # List rules
 
 iptables -L -v -n --line-number
-
