@@ -1,0 +1,17 @@
+#!/bin/sh
+
+BANNED_LIST=banned_addresses.txt
+
+ADDRESS=$1
+
+FOUND=`iptables -L BLACKLIST -v -n | awk '{print \$8}' | grep -F $ADDRESS`
+
+if [ -z "$FOUND" ]
+then
+  echo $ADDRESS will be banned
+  echo $ADDRESS >> $BANNED_LIST
+  iptables -I BLACKLIST -s $ADDRESS -j DROP
+  /sbin/service iptables save
+else
+  echo $ADDRESS is already banned
+fi
