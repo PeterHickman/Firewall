@@ -60,7 +60,7 @@ iptables -A SERVICES -j RETURN
 
 # Save settings
 
-/sbin/service iptables save
+iptables-save > /etc/iptables/rules.v4
 
 # List rules
 

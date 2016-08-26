@@ -11,7 +11,7 @@ then
   echo $ADDRESS will be banned
   echo $ADDRESS >> $BANNED_LIST
   iptables -I BLACKLIST -s $ADDRESS -j DROP
-  /sbin/service iptables save
+  iptables-save > /etc/iptables/rules.v4
 else
   echo $ADDRESS is already banned
 fi
