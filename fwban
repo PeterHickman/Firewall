@@ -4,7 +4,7 @@ BANNED_LIST=banned_addresses.txt
 
 ADDRESS=$1
 
-FOUND=`iptables -L BLACKLIST -v -n | awk '{print \$8}' | grep -F $ADDRESS`
+FOUND=`iptables -L BLACKLIST -n | awk '{print \$4}' | grep -F $ADDRESS`
 
 if [ -z "$FOUND" ]
 then
