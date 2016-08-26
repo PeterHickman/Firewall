@@ -1,0 +1,18 @@
+#!/bin/sh
+
+BANNED_LIST=banned_addresses.txt
+
+ADDRESS=$1
+
+FOUND=`iptables -L BLACKLIST -n --line-number | grep " $ADDRESS " | awk '{print $1}'`
+
+if [ -z "$FOUND" ]
+then
+  echo $ADDRESS is not currently banned
+else
+  echo $ADDRESS is unbanned
+  iptables -D BLACKLIST $FOUND
+  iptables-save > /etc/iptables/rules.v4
+  grep -v "^$ADDRESS$" banned_addresses.txt > /tmp/fwunban.$$
+  mv /tmp/fwunban.$$ banned_addresses.txt
+fi
