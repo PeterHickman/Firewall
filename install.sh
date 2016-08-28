@@ -12,13 +12,13 @@ SERVICES_FILE=$TABLES_ROOT/services.txt
 ##
 check()
 {
-	echo "Checking prerequisites"
+  echo "Checking prerequisites"
 
   if [[ $EUID -ne 0 ]]; then
     echo "This script must be run as root" 1>&2
     exit 1
-	else
-		echo "- We are running as root"
+  else
+    echo "- We are running as root"
   fi
 
   FOUND=`which iptables`
@@ -26,16 +26,16 @@ check()
     echo "iptables does not appear to be installed" 1>&2
     exit 1
   else
-		echo "- iptables is installed"
+    echo "- iptables is installed"
   fi
 
-	FOUND=`uname -s`
-	if [ "$FOUND" != "Linux" ]; then
-		echo "This software assumes we are running Linux" 1>&2
-		exit 1
+  FOUND=`uname -s`
+  if [ "$FOUND" != "Linux" ]; then
+    echo "This software assumes we are running Linux" 1>&2
+    exit 1
   else
-	  echo "- We are running on Linux"
-	fi
+    echo "- We are running on Linux"
+  fi
 }
 
 ##
@@ -43,10 +43,10 @@ check()
 ##
 needed()
 {
-	echo "Things that need to be set up"
+  echo "Things that need to be set up"
 
   if [ ! -d "$TABLES_ROOT" ]; then
-	  echo "- Creating $TABLES_ROOT (have you installed iptables-persistent yet?)"
+    echo "- Creating $TABLES_ROOT (have you installed iptables-persistent yet?)"
     mkdir $TABLES_ROOT
   else
     echo "- $TABLES_ROOT exists"
@@ -59,7 +59,7 @@ needed()
     echo "- Creating an empty $BLACKLIST_FILE"
     touch $BLACKLIST_FILE
   else
-	  echo "- $BLACKLIST_FILE exists"
+    echo "- $BLACKLIST_FILE exists"
   fi
 
   # Force the permissions
@@ -69,7 +69,7 @@ needed()
     echo "- Creating a $SERVICES_FILE file with port 22 set"
     echo 22 > $SERVICES_FILE
   else
-	  echo "- $SERVICES_FILE exists"
+    echo "- $SERVICES_FILE exists"
   fi
 
   # Force the permissions
