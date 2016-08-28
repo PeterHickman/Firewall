@@ -42,7 +42,7 @@ check()
 needed()
 {
   if [ ! -d "$TABLES_ROOT" ]; then
-    echo "The directory $TABLES_ROOT is missing" 1>&2
+    echo "The directory $TABLES_ROOT is missing"
     mkdir $TABLES_ROOT
   fi
 
