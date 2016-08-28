@@ -11,5 +11,5 @@
 ## Future stuff
 
 0. As bugs emerge I will fix them
-0. As new features are require ('whitelist' ?) they will be added
+0. As new features are required ('whitelist' ?) they will be added
 0. Future versions will probably be written in something other than bash (Python?)
