@@ -3,7 +3,6 @@
 ## Assumes
 
 0. This is a Linux based system
-0. `iptables-persistent` has been installed
 0. The directory `/etc/iptables` exists and contains
   -  `blacklist.txt` a list of the banned addresses
   -  `services.txt` a list of the accessible services
