@@ -17,7 +17,6 @@ IS_UP='no'
 ##
 # See if the firewall is up
 ##
-
 is_up()
 {
   FOUND=`iptables -L | grep BLACKLIST`
@@ -28,6 +27,7 @@ is_up()
     IS_UP='no'
   fi
 }
+
 ##
 # These need to be true and there is no corrective action that we
 # can take if they are not
