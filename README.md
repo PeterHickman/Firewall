@@ -14,3 +14,4 @@
 0. Future versions will probably be written in something other than bash (Python?)
 0. Read `/etc/services` to allow users to add ports by name
 0. Can we rely on `bash` being available?
+0. A `README.md` that actually explains the project perhaps?
