@@ -80,7 +80,6 @@ check
 needed
 
 install -g root -o root -m a=r,u+x fw /usr/local/sbin/fw
-install -D -g root -o root -m a=r,u+x iptablesload /etc/network/if-pre-up.d/iptablesload
-install -D -g root -o root -m a=r,u+x iptablessave /etc/network/if-post-down.d/iptablessave
+DEBIAN_FRONTEND=noninteractive apt-get install iptables-persistent -y
 
 echo "Done"
