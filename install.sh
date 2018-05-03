@@ -79,7 +79,11 @@ needed()
 check
 needed
 
-install -g root -o root -m a=r,u+x fw /usr/local/sbin/fw
+DEBIAN_FRONTEND=noninteractive apt-get install ruby -y
 DEBIAN_FRONTEND=noninteractive apt-get install iptables-persistent -y
+
+install -g root -o root -m a=r,u+x fw /usr/local/sbin/fw
+install -g root -o root -m a=r,u+x fw-stop /usr/local/sbin/fw-stop
+install -g root -o root -m a=r,u+x fw-start /usr/local/sbin/fw-start
 
 echo "Done"

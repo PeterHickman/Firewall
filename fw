@@ -1,337 +1,517 @@
-#!/bin/bash
+#!/usr/bin/env ruby
+# encoding: UTF-8
 
-#set -euf -o pipefail
-
-TABLES_ROOT='/etc/iptables'
-
-BLACKLIST_FILE=$TABLES_ROOT/blacklist.txt
-
-SERVICES_FILE=$TABLES_ROOT/services.txt
-
-SAVED_RULES=$TABLES_ROOT/rules.v4
-
-SELF=`basename $0`
-
-IS_UP='no'
+TABLES_ROOT = './' # '/etc/iptables'
 
 ##
-# See if the firewall is up
+# So that we can run on different versions of Ruby
+# without random warnings
 ##
-is_up()
-{
-  FOUND=`iptables -L | grep BLACKLIST`
 
-  if [ "$FOUND" != "" ]; then
-    IS_UP='yes'
-  else
-    IS_UP='no'
-  fi
-}
+$VERBOSE = nil
 
 ##
-# These need to be true and there is no corrective action that we
-# can take if they are not
+# The whitelist command supports the pseudo port names
+# 'any' and 'all' when creating or deleting entries
 ##
-check()
-{
-  if [[ $EUID -ne 0 ]]; then
-    echo "This script must be run as root" 1>&2
-    exit 1
-  fi
 
-  FOUND=`which iptables`
-  if [ -z "$FOUND" ]; then
-    echo "iptables does not appear to be installed" 1>&2
-    exit 1
-  fi
+ANY_PORT = 'any'.freeze
+ANY_ALL_LIST = %w(any all).freeze
 
-  FOUND=`uname -s`
-  if [ "$FOUND" != "Linux" ]; then
-    echo "This software assumes we are running Linux" 1>&2
-    exit 1
-  fi
-}
+class String
+  ##
+  # Normal colours
+  ##
+  def black;   colorize(30) end
+  def red;     colorize(31) end
+  def green;   colorize(32) end
+  def yellow;  colorize(33) end
+  def blue;    colorize(34) end
+  def magenta; colorize(35) end
+  def cyan;    colorize(36) end
+  def white;   colorize(37) end
+
+  ##
+  # Bright colours
+  ##
+  def bright_black;   colorize(90) end
+  def bright_red;     colorize(91) end
+  def bright_green;   colorize(92) end
+  def bright_yellow;  colorize(93) end
+  def bright_blue;    colorize(94) end
+  def bright_magenta; colorize(95) end
+  def bright_cyan;    colorize(96) end
+  def bright_white;   colorize(97) end
+
+  ##
+  # Normal background colours
+  ##
+  def bg_black;   colorize(40) end
+  def bg_red;     colorize(41) end
+  def bg_green;   colorize(42) end
+  def bg_yellow;  colorize(43) end
+  def bg_blue;    colorize(44) end
+  def bg_magenta; colorize(45) end
+  def bg_cyan;    colorize(46) end
+  def bg_white;   colorize(47) end
+
+  ##
+  # Bright background colours
+  ##
+  def bg_bright_black;   colorize(100) end
+  def bg_bright_red;     colorize(101) end
+  def bg_bright_green;   colorize(102) end
+  def bg_bright_yellow;  colorize(103) end
+  def bg_bright_blue;    colorize(104) end
+  def bg_bright_magenta; colorize(105) end
+  def bg_bright_cyan;    colorize(106) end
+  def bg_bright_white;   colorize(107) end
+
+  private
+
+  def colorize(color_code)
+    "\e[#{color_code}m#{self}\e[0m"
+  end
+end
+
+# Read the +services+ file where ever it may be so
+# that the user can use service names rather than
+# port numbers
+
+class SystemServicesFile
+  def initialize
+    @file = '/etc/services'
+
+    raise 'Unable to locate the system services file' unless @file
+
+    @names_to_ports = {}
+    @ports_to_names = {}
+
+    load_file
+  end
+
+  def name_to_port(name)
+    @names_to_ports[name.downcase.strip]
+  end
+
+  def port_to_name(port)
+    @ports_to_names[port]
+  end
+
+  private
+
+  def load_file
+    File.open(@file, 'r').each do |line|
+      next unless line.include?('/tcp')
+
+      name, port = line.split(/\s+/)[0..1]
+
+      name = name.downcase
+      port = port.to_i
+
+      @names_to_ports[name] = port
+      @ports_to_names[port] = name
+    end
+  end
+end
+
+class FirewallServicesFile
+  attr_reader :services
+
+  def initialize
+    @services = []
+
+    @file = "#{TABLES_ROOT}/services.txt"
+
+    load_file
+
+    @contents_altered = false
+  end
+
+  def add(port, loading = false)
+    x = clean_port(port)
+
+    if x
+      unless @services.include?(x)
+        @services << x
+        @contents_altered = true
+        $ipt.services_add(port) unless loading
+      end
+    else
+      raise "Unknown port [#{port}]"
+    end
+  end
+
+  def delete(port)
+    x = clean_port(port)
+    if x
+      if @services.include?(x)
+        @services.delete(x)
+        @contents_altered = true
+      end
+    else
+      raise "Unknown port [#{port}]"
+    end
+  end
+
+  def save
+    return unless @contents_altered
+
+    f = File.open(@file, 'w')
+    @services.each do |port|
+      f.puts port
+    end
+    f.close
+  end
+ 
+  private
+
+  def load_file
+    return unless File.exist?(@file)
+
+    File.open(@file, 'r').each do |line|
+      line.chomp!
+      add(line, true)
+    end
+  end      
+end
+
+class FirewallBlacklistFile
+  attr_reader :blacklist
+
+  def initialize
+    @blacklist = {}
+
+    @file = "#{TABLES_ROOT}/blacklist.txt"
+
+    load_file
+
+    @contents_altered = false
+  end
+
+  def add(ip_address)
+    unless @blacklist.has_key?(ip_address)
+      @blacklist[ip_address] = Time.now.to_i
+      @contents_altered = true
+      $ipt.blacklist_add(ip_address)
+    end
+  end
+
+  def delete(ip_address)
+    if @blacklist.has_key?(ip_address)
+      @blacklist.delete(ip_address)
+      @contents_altered = true
+      $ipt.blacklist_delete(ip_address)
+    end
+  end
+
+  def save
+    return unless @contents_altered
+
+    f = File.open(@file, 'w')
+    @blacklist.each do |ip_address, timestamp|
+      f.puts "#{ip_address}\t#{timestamp}"
+    end
+    f.close
+  end
+
+  private
+
+  def load_file
+    return unless File.exist?(@file)
+
+    File.open(@file, 'r').each do |line|
+      ip_address, timestamp = line.chomp.split(/\s+/)
+      @blacklist[ip_address] = timestamp
+    end
+  end
+end
+
+class FirewallWhitelistFile
+  attr_reader :whitelist
+
+  def initialize
+    @whitelist = {}
+
+    @file = "#{TABLES_ROOT}/whitelist.txt"
+
+    load_file
+
+    @contents_altered = false
+  end
+
+  def add(ip_address, port, loading = false)
+    port = port.to_i if port.class == String && port =~ /^\d+$/
+
+    if @whitelist.has_key?(ip_address)
+      if port == ANY_PORT
+        if @whitelist[ip_address] != [ANY_PORT]
+          @whitelist[ip_address] = [ANY_PORT]
+          @contents_altered = true
+          $ipt.whitelist_purge(ip_address) unless loading
+          $ipt.whitelist_add(ip_address, port) unless loading
+        end
+      elsif @whitelist[ip_address] != [ANY_PORT]
+        unless @whitelist[ip_address].include?(port)
+          @whitelist[ip_address] << port
+          @contents_altered = true
+          $ipt.whitelist_add(ip_address, port) unless loading
+        end
+      end
+    else
+      @whitelist[ip_address] = [port]
+      @contents_altered = true
+      $ipt.whitelist_add(ip_address, port) unless loading
+    end
+  end
+
+  def delete(ip_address, port)
+    if @whitelist.has_key?(ip_address)
+      if port == ANY_PORT
+        @whitelist.delete(ip_address)
+        @contents_altered = true
+        $ipt.whitelist_purge(ip_address)
+      elsif @whitelist[ip_address] == [ANY_PORT]
+        error("Unable to remove port [#{port}] from '#{ANY_PORT}'")
+      elsif @whitelist[ip_address].include?(port)
+        @whitelist[ip_address].delete(port)
+        @contents_altered = true
+        $ipt.whitelist_delete(ip_address, port)
+        @whitelist.delete(ip_address) if @whitelist[ip_address].size == 0
+      end
+    end
+  end
+
+  def save
+    return unless @contents_altered
+
+    f = File.open(@file, 'w')
+    @whitelist.each do |ip_address, ports|
+      ports.each do |port|
+        f.puts "#{ip_address}\t#{port}"
+      end
+    end
+    f.close
+  end
+
+  private
+
+  def load_file
+    return unless File.exist?(@file)
+
+    File.open(@file, 'r').each do |line|
+      ip_address, port = line.chomp.split(/\s+/)
+      add(ip_address, port, true)
+    end
+  end
+end
+
+class IPTables
+  def initialize
+    @something_changed = false
+  end
+
+  def services_add(port)
+    system("iptables -I SERVICES -p tcp --dport #{port} -m state --state NEW -s 0.0.0.0/0 -j ACCEPT")
+    @something_changed = true
+  end
+
+  def services_delete(port)
+    puts "Delete #{port} as a service"
+  end
+
+  def blacklist_add(ip_address)
+    system("iptables -I BLACKLIST -s #{ip_address} -j DROP")
+    @something_changed = true
+  end
+
+  def blacklist_delete(ip_address)
+    puts "Delete #{ip_address} from blacklist"
+  end
+
+  def whitelist_add(ip_address, port)
+    puts "Add #{port} to whitelist for #{ip_address}"
+  end
+
+  def whitelist_delete(ip_address, port)
+    puts "Delete #{port} from whitelist for #{ip_address}"
+  end
+
+  def whitelist_purge(ip_address)
+    puts "Purge #{ip_address} from the whitelist"
+  end
+
+  def list
+    system('iptables -L -n -v')
+  end
+
+  def start
+    system('/usr/local/sbin/fw-start')
+  end
+
+  def stop
+    system('/usr/local/sbin/fw-stop')
+  end
+
+  def save
+    return unless @something_changed
+    system('iptables-save > /etc/iptables/rules.v4')
+    @something_changed = false
+  end
+end
+
+def error(message)
+  puts '%s: %s' % ['ERROR'.red, message]
+  exit(0)
+end
+
+def clean_port(port, specials = false)
+  return ANY_PORT if specials && ANY_ALL_LIST.include?(port)
+
+  if [Integer, Fixnum].include?(port.class)
+    port
+  elsif port =~ /^\d+$/
+    port.to_i
+  else
+    $ssf.name_to_port(port)
+  end
+end
+
+def valid_port(port)
+  return true if %w(all any).include?(port)
+  return false if port == nil
+
+  0 <= port && port <= 65535
+end
+
+def valid_address(address)
+  parts = address.split('/')
+
+  ##
+  # Check out the netmask
+  ##
+  case parts.size
+  when 1
+    # An address without a netmask
+  when 2
+    if parts.last =~ /^(\d+)$/
+      n = $1.to_i
+      error('A netmask can only be 1 to 32') unless 1 <= n && n <= 32
+    else
+      error('Unreadable netmask on address')
+    end
+  else
+    error('A valid ip address can have only one /')
+  end
+
+  ##
+  # Check out the dotted quad
+  ##
+  dqs = parts.first.split('.')
+  error('An IP address should be a dotted quad') if dqs.size != 4
+
+  dqs.each do |dq|
+    if dq =~ /^(\d+)$/
+      n = $1.to_i
+      error('Dotted quad values should be between 0 and 255') unless 0 <= n && n <= 255
+    else
+      error('An dotted quad should be numeric')
+    end
+  end
+
+  address
+end
 
 ##
-# Things that need to exist but we can fix them if they do not
+# First check that the necessary things are available
+# and fix what you can
 ##
-needed()
-{
-  if [ ! -d "$TABLES_ROOT" ]; then
-    echo "The directory $TABLES_ROOT is missing"
-    mkdir $TABLES_ROOT
-  fi
 
-  # Force the permissions
-  chmod a=rx,u+w $TABLES_ROOT
+$ipt = IPTables.new
+$ssf = SystemServicesFile.new
+fsf = FirewallServicesFile.new
+fbf = FirewallBlacklistFile.new
+fwf = FirewallWhitelistFile.new
 
-  if [ ! -r "$BLACKLIST_FILE" ]; then
-    echo "The file $BLACKLIST_FILE is missing"
-    touch $BLACKLIST_FILE
-  fi
+commands = ARGV.map { |c| c.downcase }
 
-  # Force the permissions
-  chmod a=r,u+w $BLACKLIST_FILE
+command = commands.shift
 
-  if [ ! -r "$SERVICES_FILE" ]; then
-    echo "The file $SERVICES_FILE is missing"
-    echo 22 > $SERVICES_FILE
-  fi
+case command
+when 'services'
+  sub_command = commands.shift
+  error("Blank subcommand for #{command} given") unless sub_command
 
-  # Force the permissions
-  chmod a=r,u+w $SERVICES_FILE
-}
+  argument = commands.shift
+  error('Missing argument for sub command') unless argument
 
-list()
-{
-  iptables -L -n -v
-}
+  port = clean_port(argument)
+  error("Unknown port name [#{argument}]") if port == nil
+  error("[#{argument}] is an invalid port") unless valid_port(port)
 
-usage()
-{
-  echo $SELF: available commands
-  echo
-  echo $SELF start - start the firewall
-  echo $SELF stop - stop the firewall
-  echo $SELF list - list the current firewall rules
-  echo $SELF status - a summary of the current firewall
-  echo $SELF blacklist add \<address\> - add \<address\> to the blacklist
-  echo $SELF blacklist remove \<address\> - remove \<address\> from the blacklist
-  echo $SELF services add \<service\> - open access to \<service\>
-  echo $SELF services remove \<service\> - remove access to \<service\>
-}
-
-blacklist()
-{
-  if [ "$IS_UP" = "no" ]; then
-    echo "The firewall is currently down. Unable to complete request"
-    exit 1
-  fi
-
-  COMMAND=$1
-  shift
-
-  case $COMMAND in
-    add)    blacklist_add    $* ;;
-    remove) blacklist_remove $* ;;
-    *)
-      echo "Unknown subcommand [$COMMAND] for blacklist"
-      usage
-      ;;
-  esac
-}
-
-blacklist_add()
-{
-  ADDRESS=$1
-
-  FOUND=`iptables -L BLACKLIST -n | awk '{print \$4}' | grep -F $ADDRESS`
-
-  if [ -z "$FOUND" ]
-  then
-    echo "Address $ADDRESS will be banned"
-    echo $ADDRESS >> $BLACKLIST_FILE
-    iptables -I BLACKLIST -s $ADDRESS -j DROP
-    iptables-save > $SAVED_RULES
+  case sub_command
+  when 'add'
+    fsf.add(argument)
+    fsf.save
+  when 'delete'
+    fsf.delete(argument)
+    fsf.save
   else
-    echo "Address $ADDRESS is already banned"
-  fi
-}
+    error("Unknown #{command} sub command [#{sub_command}]")
+  end
+when 'blacklist'
+  sub_command = commands.shift
+  error("Blank subcommand for #{command} given") unless sub_command
 
-blacklist_remove()
-{
-  ADDRESS=$1
+  argument = commands.shift
+  error('Missing argument for sub command') unless argument
 
-  FOUND=`iptables -L BLACKLIST -n --line-number | grep " $ADDRESS " | awk '{print $1}'`
+  address = valid_address(argument)
 
-  if [ -z "$FOUND" ]
-  then
-    echo "Address $ADDRESS is not currently banned"
+  case sub_command
+  when 'add'
+    fbf.add(argument)
+    fbf.save
+  when 'delete'
+    fbf.delete(argument)
+    fbf.save
   else
-    echo "Address $ADDRESS is unbanned"
-    iptables -D BLACKLIST $FOUND
-    iptables-save > $SAVED_RULES
-    grep -v "^$ADDRESS$" $BLACKLIST_FILE > /tmp/fw.$$
-    mv /tmp/fw.$$ $BLACKLIST_FILE
-  fi
-}
+    error("Unknown #{command} sub command [#{sub_command}]")
+  end
+when 'whitelist'
+  sub_command = commands.shift
+  error("Blank subcommand for #{command} given") unless sub_command
 
-services()
-{
-  if [ "$IS_UP" = "no" ]; then
-    echo "The firewall is currently down. Unable to complete request"
-    exit 1
-  fi
+  argument = commands.shift
+  error('Missing argument for sub command') unless argument
 
-  COMMAND=$1
-  shift
+  address = valid_address(argument)
 
-  case $COMMAND in
-    add)    services_add    $* ;;
-    remove) services_remove $* ;;
-    *)
-      echo "Unknown subcommand [$COMMAND] for services"
-      usage
-      ;;
-  esac
-}
+  argument = commands.shift
+  error('Missing argument for sub command') unless argument
 
-services_add()
-{
-  SERVICE=$1
+  port = clean_port(argument, true)
+  error("Unknown port name [#{argument}]") if port == nil
+  error("[#{argument}] is an invalid port") unless valid_port(port)
 
-  FOUND=`iptables -L SERVICES -n --line-numbers | grep " dpt:$SERVICE " | awk '{print $1}'`
-
-  if [ -z "$FOUND" ]; then
-    echo "Service $SERVICE will be enabled"
-    echo $SERVICE >> $SERVICES_FILE
-    iptables -I SERVICES -p tcp --dport $SERVICE -m state --state NEW -s 0.0.0.0/0 -j ACCEPT 
-    iptables-save > $SAVED_RULES
+  case sub_command
+  when 'add'
+    fwf.add(address, port)
+    fwf.save
+  when 'delete'
+    fwf.delete(address, port)
+    fwf.save
   else
-    echo "Service $SERVICE is already enabled"
-  fi
-}
-
-services_remove()
-{
-  SERVICE=$1
-
-  FOUND=`iptables -L SERVICES -n --line-numbers | grep " dpt:$SERVICE " | awk '{print $1}'`
-
-  if [ -z "$FOUND" ]; then
-    echo "Service $SERVICE is not currently enabled"
-  else
-    echo Service $SERVICE will be disabled
-    iptables -D SERVICES $FOUND
-    iptables-save > $SAVED_RULES
-    grep -v "^$SERVICE$" $SERVICES_FILE > /tmp/fw.$$
-    mv /tmp/fw.$$ $SERVICES_FILE
-  fi
-}
-
-start()
-{
-  # Flush all current rules from iptables
-
-  iptables --flush
-  iptables --delete-chain
-  iptables -t nat --flush 
-  iptables -t nat --delete-chain 
-  iptables -t mangle --flush 
-  iptables -t mangle --delete-chain 
-
-  # Set default policies for INPUT, FORWARD and OUTPUT chains
-
-  iptables -P INPUT DROP 
-  iptables -P FORWARD DROP 
-  iptables -P OUTPUT ACCEPT
-
-  # Set access for localhost
-
-  iptables -A INPUT -i lo -j ACCEPT 
-  iptables -A OUTPUT -o lo -j ACCEPT
-
-  # Accept packets belonging to established and related connections
-
-  iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-
-  # security checks: force SYN checks, drop all fragments, drop XMAS packets, drop null packets 
-  # see: http://security.blogoverflow.com/2011/08/base-rulesets-in-iptables/ 
-  iptables -A INPUT -p tcp ! --syn -m state --state NEW -j DROP 
-  iptables -A INPUT -f -j DROP 
-  iptables -A INPUT -p tcp --tcp-flags ALL ALL -j DROP 
-  iptables -A INPUT -p tcp --tcp-flags ALL NONE -j DROP
-
-  # allow icmp 
-  iptables -A INPUT -p icmp -m icmp --icmp-type echo-request -m limit --limit 1/second -j ACCEPT 
-  iptables -A INPUT -p icmp -m icmp --icmp-type fragmentation-needed -m limit --limit 1/second -j ACCEPT 
-  iptables -A INPUT -p icmp -m icmp --icmp-type source-quench -m limit --limit 1/second -j ACCEPT 
-
-  # Load the banned addresses
-
-  iptables -N BLACKLIST
-  iptables -A INPUT -j BLACKLIST
-  iptables -A BLACKLIST -j RETURN
-
-  for ADDRESS in `cat $BLACKLIST_FILE`
-  do
-    iptables -I BLACKLIST -s $ADDRESS -j DROP
-  done
-
-  # Permitted ports
-
-  iptables -N SERVICES
-  iptables -A INPUT -j SERVICES
-  iptables -A SERVICES -j RETURN
-
-  for PORT in `cat $SERVICES_FILE`
-  do
-    iptables -I SERVICES -p tcp --dport $PORT -m state --state NEW -s 0.0.0.0/0 -j ACCEPT 
-  done
-
-  # Save settings
-
-  iptables-save > $SAVED_RULES
-
-  echo "Firewall setup and saved"
-}
-
-stop()
-{
-  # Flush all current rules from iptables
-
-  iptables --flush
-  iptables --delete-chain
-  iptables -t nat --flush 
-  iptables -t nat --delete-chain 
-  iptables -t mangle --flush 
-  iptables -t mangle --delete-chain 
-
-  # Set default policies for INPUT, FORWARD and OUTPUT chains
-
-  iptables -P INPUT ACCEPT 
-  iptables -P FORWARD ACCEPT 
-  iptables -P OUTPUT ACCEPT
-
-  # Save settings
-
-  iptables-save > $SAVED_RULES
-
-  echo "Firewall setup and saved"
-}
-
-status()
-{
-  if [ "$IS_UP" = "yes" ]; then
-    echo "The firewall is UP"
-  else
-    echo "The firewall is DOWN"
-  fi
-
-  echo "Allowing access via:"
-  for PORT in `cat $SERVICES_FILE`
-  do
-    echo "  $PORT"
-  done
-
-  COUNT=`cat $BLACKLIST_FILE | wc -l`
-  echo "There are $COUNT banned addresses"
-}
-
-check
-needed
-is_up
-
-COMMAND=$1
-shift
-
-case $COMMAND in
-  start)     start ;;
-  stop)      stop ;;
-  list)      list ;;
-  status)    status ;;
-  blacklist) blacklist $* ;;
-  services)  services  $* ;;
-  service)   services  $* ;;
-  *)         usage ;;
-esac
+    error("Unknown #{command} sub command [#{sub_command}]")
+  end
+when 'list'
+  $ipt.list
+when 'status'
+  puts 'Show the status of the firewall'
+when 'start'
+  $ips.start
+when 'stop'
+  $ipt.stop
+else
+  puts 'No command given, show usage'
+end

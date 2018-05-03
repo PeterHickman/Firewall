@@ -1,0 +1,92 @@
+#!/bin/bash
+
+# Return iptables to a blank state
+
+#set -euf -o pipefail
+
+TABLES_ROOT='/etc/iptables'
+
+BLACKLIST_FILE=$TABLES_ROOT/blacklist.txt
+
+WHITELIST_FILE=$TABLES_ROOT/whitelist.txt
+
+SERVICES_FILE=$TABLES_ROOT/services.txt
+
+SAVED_RULES=$TABLES_ROOT/rules.v4
+
+##
+# These need to be true and there is no corrective action that we
+# can take if they are not
+##
+if [[ $EUID -ne 0 ]]; then
+  echo "This script must be run as root" 1>&2
+  exit 1
+fi
+
+FOUND=`which iptables`
+if [ -z "$FOUND" ]; then
+  echo "iptables does not appear to be installed" 1>&2
+  exit 1
+fi
+
+FOUND=`uname -s`
+if [ "$FOUND" != "Linux" ]; then
+  echo "This software assumes we are running Linux" 1>&2
+  exit 1
+fi
+
+##
+# Things that need to exist but we can fix them if they do not
+##
+if [ ! -d "$TABLES_ROOT" ]; then
+  echo "The directory $TABLES_ROOT is missing"
+  mkdir $TABLES_ROOT
+fi
+
+# Force the permissions
+chmod a=rx,u+w $TABLES_ROOT
+
+if [ ! -r "$BLACKLIST_FILE" ]; then
+  echo "The file $BLACKLIST_FILE is missing"
+  touch $BLACKLIST_FILE
+fi
+
+# Force the permissions
+chmod a=r,u+w $BLACKLIST_FILE
+
+if [ ! -r "$WHITELIST_FILE" ]; then
+  echo "The file $WHITELIST_FILE is missing"
+  touch $WHITELIST_FILE
+fi
+
+# Force the permissions
+chmod a=r,u+w $WHITELIST_FILE
+
+if [ ! -r "$SERVICES_FILE" ]; then
+  echo "The file $SERVICES_FILE is missing"
+  echo 22 > $SERVICES_FILE
+fi
+
+# Force the permissions
+chmod a=r,u+w $SERVICES_FILE
+
+# Flush all current rules from iptables
+
+iptables --flush
+iptables --delete-chain
+iptables -t nat --flush 
+iptables -t nat --delete-chain 
+iptables -t mangle --flush 
+iptables -t mangle --delete-chain 
+
+# Set default policies for INPUT, FORWARD and OUTPUT chains
+
+iptables -P INPUT ACCEPT 
+iptables -P FORWARD ACCEPT 
+iptables -P OUTPUT ACCEPT
+
+# Save settings
+
+iptables-save > $SAVED_RULES
+
+echo "Firewall reset and saved"
