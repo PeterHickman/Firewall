@@ -82,8 +82,6 @@ class SystemServicesFile
   def initialize
     @file = '/etc/services'
 
-    raise 'Unable to locate the system services file' unless @file
-
     @names_to_ports = {}
     @ports_to_names = {}
 
@@ -318,6 +316,7 @@ class IPTables
 
   def services_delete(port)
     puts "Delete #{port} as a service"
+    @something_changed = true
   end
 
   def blacklist_add(ip_address)
@@ -327,18 +326,22 @@ class IPTables
 
   def blacklist_delete(ip_address)
     puts "Delete #{ip_address} from blacklist"
+    @something_changed = true
   end
 
   def whitelist_add(ip_address, port)
     puts "Add #{port} to whitelist for #{ip_address}"
+    @something_changed = true
   end
 
   def whitelist_delete(ip_address, port)
     puts "Delete #{port} from whitelist for #{ip_address}"
+    @something_changed = true
   end
 
   def whitelist_purge(ip_address)
     puts "Purge #{ip_address} from the whitelist"
+    @something_changed = true
   end
 
   def list
@@ -422,13 +425,9 @@ def valid_address(address)
   address
 end
 
-##
-# First check that the necessary things are available
-# and fix what you can
-##
-
 $ipt = IPTables.new
 $ssf = SystemServicesFile.new
+
 fsf = FirewallServicesFile.new
 fbf = FirewallBlacklistFile.new
 fwf = FirewallWhitelistFile.new
@@ -515,3 +514,5 @@ when 'stop'
 else
   puts 'No command given, show usage'
 end
+
+$ipt.save
