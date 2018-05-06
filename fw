@@ -310,12 +310,13 @@ class IPTables
   end
 
   def services_add(port)
-    system("iptables -I SERVICES -p tcp --dport #{port} -m state --state NEW -s 0.0.0.0/0 -j ACCEPT")
+    system("iptables -I SERVICES -p tcp --dport #{port} -m conntrack --ctstate NEW,ESTABLISHED -s 0.0.0.0/0 -j ACCEPT")
     @something_changed = true
   end
 
   def services_delete(port)
-    puts "Delete #{port} as a service"
+    matching_rules = table_data('SERVICES').select { |r| r.last == port }
+    remove('SERVICES', matching_rules)
     @something_changed = true
   end
 
@@ -325,22 +326,25 @@ class IPTables
   end
 
   def blacklist_delete(ip_address)
-    puts "Delete #{ip_address} from blacklist"
+    matching_rules = table_data('BLACKLIST').select { |r| r[1] == ip_address }
+    remove('BLACKLIST', matching_rules)
     @something_changed = true
   end
 
   def whitelist_add(ip_address, port)
-    puts "Add #{port} to whitelist for #{ip_address}"
+    system("iptables -A WHITELIST -p tcp -s #{ip_address} --dport #{port} -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT")
     @something_changed = true
   end
 
   def whitelist_delete(ip_address, port)
-    puts "Delete #{port} from whitelist for #{ip_address}"
+    matching_rules = table_data('WHITELIST').select { |r| r[1] == ip_address && r.last == port }
+    remove('WHITELIST', matching_rules)
     @something_changed = true
   end
 
   def whitelist_purge(ip_address)
-    puts "Purge #{ip_address} from the whitelist"
+    matching_rules = table_data('WHITELIST').select { |r| r[1] == ip_address }
+    remove('WHITELIST', matching_rules)
     @something_changed = true
   end
 
@@ -360,6 +364,44 @@ class IPTables
     return unless @something_changed
     system('iptables-save > /etc/iptables/rules.v4')
     @something_changed = false
+  end
+
+  private
+
+  def table_data(table)
+    r = []
+
+    output = `iptables -L #{table} --numeric --line-numbers`
+
+    output.split("\n").each do |line|
+      parts = line.split(/\s+/)
+      next unless parts[0] =~ /^\d+$/
+
+      proto = -1
+      port = nil
+
+      parts.each_with_index do |part, index|
+        if proto == -1 && %w(tcp udp all).include?(part)
+          proto = index
+        end
+
+        if part.index('dpt:')
+          port = part.split(':').last.to_i
+        end
+      end
+
+      next if proto == -1
+
+      r << [parts[0].to_i, parts[proto + 2], port]
+    end
+
+    r.sort { |a, b| b.first <=> a.first }
+  end
+
+  def remove(table, rules)
+    matching_rules.each do |rule|
+      system("iptables -D #{table} #{rule.first}")
+    end
   end
 end
 
