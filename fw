@@ -550,7 +550,7 @@ when 'list'
 when 'status'
   puts 'Show the status of the firewall'
 when 'start'
-  $ips.start
+  $ipt.start
 when 'stop'
   $ipt.stop
 else
